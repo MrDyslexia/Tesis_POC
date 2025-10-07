@@ -1,8 +1,8 @@
-import type React from "react"
-import HomeScreen from "./screens/MainScreen"
+import React from "react"
+import AppNavigator from "./navigation/AppNavigator"
 
 const App: React.FC = () => {
-  return <HomeScreen />
+  return <AppNavigator />
 }
 
 export default App
