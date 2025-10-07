@@ -16,25 +16,30 @@ export const useAudioStream = (serverUrl: string) => {
   const isMountedRef = useRef(true)
 
   /**
-   * Solicita permisos de micrófono en Android
+   * Solicita permisos de micrófono
    */
   const requestMicrophonePermission = async (): Promise<boolean> => {
-    if (Platform.OS === "android") {
-      try {
-        const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
-          title: "Permiso de Micrófono",
-          message: "Esta app necesita acceso al micrófono para grabar audio",
-          buttonNeutral: "Preguntar después",
-          buttonNegative: "Cancelar",
-          buttonPositive: "Aceptar",
-        })
+    try {
+      if (Platform.OS === "android") {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: "Permiso de Micrófono",
+            message: "Esta app necesita acceso al micrófono para grabar audio",
+            buttonNeutral: "Preguntar después",
+            buttonNegative: "Cancelar",
+            buttonPositive: "Aceptar",
+          }
+        )
         return granted === PermissionsAndroid.RESULTS.GRANTED
-      } catch (err) {
-        console.error("Error al solicitar permisos:", err)
-        return false
       }
+      
+      // iOS maneja permisos automáticamente al iniciar el stream
+      return true
+    } catch (err) {
+      console.error("Error al solicitar permisos:", err)
+      return false
     }
-    return true // iOS maneja permisos automáticamente
   }
 
   /**
@@ -42,7 +47,7 @@ export const useAudioStream = (serverUrl: string) => {
    */
   const connect = useCallback(async () => {
     try {
-      console.log("[v0] Hook: Iniciando conexión...")
+      console.log("[v1] Hook: Iniciando conexión a:", serverUrl)
       setState((prev) => ({ ...prev, error: null }))
 
       await AudioStreamService.connect(serverUrl)
@@ -50,25 +55,59 @@ export const useAudioStream = (serverUrl: string) => {
       if (!isMountedRef.current) return
 
       setState((prev) => ({ ...prev, isConnected: true }))
-      console.log("[v0] Hook: Estado actualizado a conectado")
+      console.log("[v1] Hook: Estado actualizado a conectado")
 
-      // Escuchar transcripciones
+      // Configurar listeners del socket
       const socket = AudioStreamService.getSocket()
       if (socket) {
+        // Limpiar listeners anteriores
         socket.off("transcription")
-        socket.on("transcription", (data: { text: string }) => {
-          console.log("[v0] Hook: Transcripción recibida:", data.text)
+        socket.off("audio_error")
+        socket.off("disconnect")
+
+        // Transcripciones en tiempo real
+        socket.on("transcription", (data: { text: string; isFinal: boolean }) => {
+          console.log("[v1] Hook: Transcripción recibida:", data.text, "Final:", data.isFinal)
           if (isMountedRef.current) {
-            setTranscription((prev) => prev + " " + data.text)
+            setTranscription((prev) => {
+              // Si es final, agregar con espacio, si es parcial reemplazar la última línea
+              if (data.isFinal) {
+                return prev + (prev ? " " : "") + data.text
+              } else {
+                // Para parciales, podrías mostrar de manera diferente
+                return prev + " [Parcial: " + data.text + "]"
+              }
+            })
+          }
+        })
+
+        // Manejar errores de audio
+        socket.on("audio_error", (error: { error: string }) => {
+          console.error("[v1] Hook: Error de audio del servidor:", error)
+          if (isMountedRef.current) {
+            setState((prev) => ({ ...prev, error: error.error }))
+          }
+        })
+
+        // Manejar desconexión
+        socket.on("disconnect", (reason: string) => {
+          console.log("[v1] Hook: Socket desconectado:", reason)
+          if (isMountedRef.current) {
+            setState((prev) => ({ 
+              ...prev, 
+              isConnected: false, 
+              isRecording: false 
+            }))
           }
         })
       }
+
     } catch (error) {
-      console.error("[v0] Hook: Error en connect:", error)
+      console.error("[v1] Hook: Error en connect:", error)
       if (isMountedRef.current) {
         setState((prev) => ({
           ...prev,
-          error: "Error al conectar con el servidor",
+          error: error instanceof Error ? error.message : "Error al conectar con el servidor",
           isConnected: false,
         }))
       }
@@ -79,10 +118,15 @@ export const useAudioStream = (serverUrl: string) => {
    * Desconecta del servidor
    */
   const disconnect = useCallback(() => {
-    console.log("[v0] Hook: Desconectando...")
+    console.log("[v1] Hook: Desconectando...")
     AudioStreamService.disconnect()
     if (isMountedRef.current) {
-      setState((prev) => ({ ...prev, isConnected: false, isRecording: false }))
+      setState((prev) => ({ 
+        ...prev, 
+        isConnected: false, 
+        isRecording: false 
+      }))
+      setTranscription("")
     }
   }, [])
 
@@ -91,6 +135,8 @@ export const useAudioStream = (serverUrl: string) => {
    */
   const startRecording = useCallback(async () => {
     try {
+      console.log("[v1] Hook: Iniciando grabación...")
+      
       const hasPermission = await requestMicrophonePermission()
       if (!hasPermission) {
         setState((prev) => ({
@@ -100,15 +146,34 @@ export const useAudioStream = (serverUrl: string) => {
         return
       }
 
+      if (!AudioStreamService.isConnected()) {
+        setState((prev) => ({
+          ...prev,
+          error: "No hay conexión con el servidor",
+        }))
+        return
+      }
+
       await AudioStreamService.startStreaming()
-      setState((prev) => ({ ...prev, isRecording: true, error: null }))
+      
+      if (isMountedRef.current) {
+        setState((prev) => ({ 
+          ...prev, 
+          isRecording: true, 
+          error: null 
+        }))
+      }
+      
+      console.log("[v1] Hook: Grabación iniciada correctamente")
     } catch (error) {
-      console.error("Error al iniciar grabación:", error);
-      setState((prev) => ({
-        ...prev,
-        error: "Error al iniciar grabación",
-        isRecording: false,
-      }))
+      console.error("[v1] Hook: Error al iniciar grabación:", error)
+      if (isMountedRef.current) {
+        setState((prev) => ({
+          ...prev,
+          error: error instanceof Error ? error.message : "Error al iniciar grabación",
+          isRecording: false,
+        }))
+      }
     }
   }, [])
 
@@ -116,8 +181,11 @@ export const useAudioStream = (serverUrl: string) => {
    * Detiene la grabación
    */
   const stopRecording = useCallback(() => {
+    console.log("[v1] Hook: Deteniendo grabación...")
     AudioStreamService.stopStreaming()
-    setState((prev) => ({ ...prev, isRecording: false }))
+    if (isMountedRef.current) {
+      setState((prev) => ({ ...prev, isRecording: false }))
+    }
   }, [])
 
   /**
@@ -127,16 +195,17 @@ export const useAudioStream = (serverUrl: string) => {
     setTranscription("")
   }, [])
 
+  // Efecto para limpieza
   useEffect(() => {
     isMountedRef.current = true
 
     return () => {
-      console.log("[v0] Hook: Cleanup ejecutándose")
+      console.log("[v1] Hook: Cleanup ejecutándose")
       isMountedRef.current = false
       AudioStreamService.stopStreaming()
       AudioStreamService.disconnect()
     }
-  }, []) // Sin dependencias para que solo se ejecute al montar/desmontar
+  }, [])
 
   return {
     ...state,

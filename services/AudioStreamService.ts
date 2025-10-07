@@ -39,6 +39,27 @@ class AudioStreamService {
           resolve()
         })
 
+        this.socket.on("connected", (data) => {
+          console.log("[v0] AudioStreamService: Servidor listo:", data)
+        })
+
+        this.socket.on("transcription", (data) => {
+          console.log("[v0] AudioStreamService: 📝 Transcripción recibida:", data)
+          // Este evento será manejado por el hook
+        })
+
+        this.socket.on("audio_ack", (data) => {
+          console.log("[v0] AudioStreamService: ✅ ACK recibido:", data)
+        })
+
+        this.socket.on("server_stats", (data) => {
+          console.log("[v0] AudioStreamService: 📊 Stats:", data)
+        })
+
+        this.socket.on("audio_error", (error) => {
+          console.error("[v0] AudioStreamService: ❌ Error de audio:", error)
+        })
+
         this.socket.on("connect_error", (error) => {
           console.error("[v0] AudioStreamService: ❌ Error de conexión:", {
             message: error.message,
@@ -49,16 +70,14 @@ class AudioStreamService {
 
         this.socket.on("disconnect", (reason) => {
           console.log("[v0] AudioStreamService: 🔌 Desconectado. Razón:", reason)
+          this.isStreaming = false
         })
 
         this.socket.on("error", (error) => {
           console.error("[v0] AudioStreamService: ❌ Error del socket:", error)
         })
 
-        this.socket.on("transcription", (data) => {
-          console.log("[v0] AudioStreamService: 📝 Transcripción recibida:", data)
-        })
-
+        // Timeout de conexión
         setTimeout(() => {
           if (this.socket && !this.socket.connected) {
             console.log("[v0] AudioStreamService: ⏱️ Timeout de conexión alcanzado")
@@ -67,6 +86,7 @@ class AudioStreamService {
             reject(error)
           }
         }, 20000)
+
       } catch (error) {
         console.error("[v0] AudioStreamService: Error en connect:", error)
         reject(error instanceof Error ? error : new Error(String(error)))
@@ -115,35 +135,57 @@ class AudioStreamService {
     try {
       console.log("[v0] AudioStreamService: Iniciando streaming con config:", this.config)
 
+      // Configurar el stream de audio
       LiveAudioStream.init({
-        ...this.config,
-        wavFile: "audio.wav",
+        sampleRate: this.config.sampleRate,
+        channels: this.config.channels,
+        bitsPerSample: this.config.bitsPerSample,
+        audioSource: this.config.audioSource,
+        bufferSize: this.config.bufferSize,
+        wavFile: "audio_stream.wav", // Solo para debug
       })
 
-      LiveAudioStream.on("data", (data: string) => {
-        if (this.socket?.connected) {
-          this.socket.emit("audio-stream", {
-            audio: data,
-            timestamp: Date.now(),
-            sampleRate: this.config.sampleRate,
-            channels: this.config.channels,
-          })
+      // Manejar datos de audio
+      LiveAudioStream.on("data", (data: any) => {
+        if (this.socket?.connected && this.isStreaming) {
+          try {
+            // Convertir base64 a array de números (Int16Array)
+            if (typeof data === 'string') {
+              // Para Android: data viene como base64
+              const binaryString = atob(data);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              
+              // Convertir a Int16Array
+              const int16Array = new Int16Array(bytes.buffer);
+              const chunkArray = Array.from(int16Array);
+              
+              this.socket.emit("audio_chunk", {
+                chunk: chunkArray,
+                timestamp: Date.now()
+              });
+            }
+          } catch (error) {
+            console.error("[v0] AudioStreamService: Error procesando chunk de audio:", error);
+          }
         }
       })
 
-      LiveAudioStream.start()
-      this.isStreaming = true
+      LiveAudioStream.on("data", (error: any) => {
+        console.error("[v0] AudioStreamService: Error en stream de audio:", error);
+      })
 
-      if (this.socket?.connected) {
-        this.socket.emit("start-stream", {
-          config: this.config,
-        })
-      }
+      // Iniciar captura de audio
+      LiveAudioStream.start();
+      this.isStreaming = true;
 
-      console.log("[v0] AudioStreamService: 🎤 Streaming de audio iniciado")
+      console.log("[v0] AudioStreamService: 🎤 Streaming de audio iniciado");
     } catch (error) {
-      console.error("[v0] AudioStreamService: ❌ Error al iniciar streaming:", error)
-      throw error
+      console.error("[v0] AudioStreamService: ❌ Error al iniciar streaming:", error);
+      this.isStreaming = false;
+      throw error;
     }
   }
 
@@ -152,22 +194,18 @@ class AudioStreamService {
    */
   stopStreaming(): void {
     if (!this.isStreaming) {
-      return
+      return;
     }
 
     try {
-      console.log("[v0] AudioStreamService: Deteniendo streaming...")
+      console.log("[v0] AudioStreamService: Deteniendo streaming...");
 
-      LiveAudioStream.stop()
-      this.isStreaming = false
+      LiveAudioStream.stop();
+      this.isStreaming = false;
 
-      if (this.socket?.connected) {
-        this.socket.emit("stop-stream")
-      }
-
-      console.log("[v0] AudioStreamService: 🛑 Streaming de audio detenido")
+      console.log("[v0] AudioStreamService: 🛑 Streaming de audio detenido");
     } catch (error) {
-      console.error("[v0] AudioStreamService: ❌ Error al detener streaming:", error)
+      console.error("[v0] AudioStreamService: ❌ Error al detener streaming:", error);
     }
   }
 
@@ -175,22 +213,22 @@ class AudioStreamService {
    * Verifica si está conectado
    */
   isConnected(): boolean {
-    return this.socket?.connected ?? false
+    return this.socket?.connected ?? false;
   }
 
   /**
    * Verifica si está grabando
    */
   isRecording(): boolean {
-    return this.isStreaming
+    return this.isStreaming;
   }
 
   /**
    * Obtiene el socket para escuchar eventos personalizados
    */
   getSocket(): Socket | null {
-    return this.socket
+    return this.socket;
   }
 }
 
-export default new AudioStreamService()
+export default new AudioStreamService();
