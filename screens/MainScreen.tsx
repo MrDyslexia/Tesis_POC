@@ -1,123 +1,62 @@
 "use client"
 
-import React, { useState } from "react"
-import { View, Text, TextInput, StyleSheet, SafeAreaView, KeyboardAvoidingView, Platform, Alert } from "react-native"
+import React from "react"
+import { View, Text, StyleSheet, SafeAreaView } from "react-native"
 import { useAudioStream } from "../hooks/useAudioStream"
-import { AudioStreamControls } from "../components/AudioStreamControls"
-import { TranscriptionDisplay } from "../components/TranscriptionDisplay"
-
-export const HomeScreen: React.FC = () => {
-  const [serverUrl, setServerUrl] = useState("http://192.168.1.100:3000")
-
-  const {
-    isConnected,
-    isRecording,
-    error,
-    transcription,
-    connect,
-    disconnect,
-    startRecording,
-    stopRecording,
-    clearTranscription,
-  } = useAudioStream(serverUrl)
-
-  const handleConnect = async () => {
-    if (!serverUrl.trim()) {
-      Alert.alert("Error", "Por favor ingresa la URL del servidor")
-      return
-    }
-    await connect()
-  }
-
-  React.useEffect(() => {
-    if (error) {
-      Alert.alert("Error", error)
-    }
-  }, [error])
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>🎙️ Audio Stream</Text>
-          <Text style={styles.headerSubtitle}>Streaming de audio en tiempo real</Text>
-        </View>
-
-        {/* Configuración del servidor */}
-        <View style={styles.configSection}>
-          <Text style={styles.label}>URL del Servidor</Text>
-          <TextInput
-            style={styles.input}
-            value={serverUrl}
-            onChangeText={setServerUrl}
-            placeholder="http://192.168.1.100:3000"
-            placeholderTextColor="#9ca3af"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!isConnected}
-          />
-        </View>
-
-        {/* Controles */}
-        <AudioStreamControls
-          isConnected={isConnected}
-          isRecording={isRecording}
-          onConnect={handleConnect}
-          onDisconnect={disconnect}
-          onStartRecording={startRecording}
-          onStopRecording={stopRecording}
-        />
-
-        {/* Transcripción */}
-        <TranscriptionDisplay transcription={transcription} onClear={clearTranscription} />
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  )
-}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  keyboardView: {
-    flex: 1,
+  statusContainer: {
+    alignItems: "center",
+    justifyContent: "center",
   },
-  header: {
-    padding: 20,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+  statusIndicator: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    marginBottom: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#1f2937",
-    marginBottom: 4,
+  connected: {
+    backgroundColor: "#10b981",
   },
-  headerSubtitle: {
-    fontSize: 14,
-    color: "#6b7280",
+  disconnected: {
+    backgroundColor: "#ef4444",
   },
-  configSection: {
-    padding: 20,
-    paddingBottom: 10,
+  statusText: {
+    fontSize: 32,
   },
-  label: {
-    fontSize: 14,
+  statusLabel: {
+    fontSize: 18,
+    color: "#fff",
     fontWeight: "600",
-    color: "#374151",
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: "#f9fafb",
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#1f2937",
   },
 })
+
+const HomeScreen: React.FC = () => {
+  const serverUrl = "https://m1.blocktype.cl"
+  const { isConnected, connect } = useAudioStream(serverUrl)
+
+  React.useEffect(() => {
+    connect()
+  }, [])
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.statusContainer}>
+        <View style={[styles.statusIndicator, isConnected ? styles.connected : styles.disconnected]}>
+          <Text style={styles.statusText}>{isConnected ? "✓" : "✕"}</Text>
+        </View>
+        <Text style={styles.statusLabel}>{isConnected ? "Conectado" : "Desconectado"}</Text>
+      </View>
+    </SafeAreaView>
+  )
+}
+
+export default HomeScreen
