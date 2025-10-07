@@ -103,6 +103,7 @@ export const useAudioStream = (serverUrl: string) => {
       await AudioStreamService.startStreaming()
       setState((prev) => ({ ...prev, isRecording: true, error: null }))
     } catch (error) {
+      console.error("Error al iniciar grabación:", error);
       setState((prev) => ({
         ...prev,
         error: "Error al iniciar grabación",
