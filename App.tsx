@@ -1,13 +1,8 @@
-import React from 'react';
-import { WebSocketProvider } from './context/WebSocketContext';
-import AppNavigator from './navigation/AppNavigator';
+import type React from "react"
+import HomeScreen from "./screens/MainScreen"
 
-const App = () => {
-  return (
-    <WebSocketProvider>
-      <AppNavigator />
-    </WebSocketProvider>
-  );
-};
+const App: React.FC = () => {
+  return <HomeScreen />
+}
 
-export default App;
+export default App

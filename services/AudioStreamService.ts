@@ -13,31 +13,62 @@ class AudioStreamService {
   connect(serverUrl: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        console.log("[v0] AudioStreamService: Intentando conectar a:", serverUrl)
+
+        if (this.socket) {
+          console.log("[v0] AudioStreamService: Limpiando socket anterior")
+          this.socket.removeAllListeners()
+          this.socket.disconnect()
+          this.socket = null
+        }
+
         this.socket = io(serverUrl, {
-          transports: ["websocket"],
+          transports: ["websocket", "polling"],
           reconnection: true,
           reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
           reconnectionAttempts: 5,
+          timeout: 20000,
+          forceNew: true,
+          autoConnect: true,
         })
 
         this.socket.on("connect", () => {
-          console.log("✅ Conectado al servidor WebSocket")
+          console.log("[v0] AudioStreamService: ✅ Conectado exitosamente")
+          console.log("[v0] AudioStreamService: Socket ID:", this.socket?.id)
           resolve()
         })
 
         this.socket.on("connect_error", (error) => {
-          console.error("❌ Error de conexión:", error)
-          reject(error instanceof Error ? error : new Error(String(error)))
+          console.error("[v0] AudioStreamService: ❌ Error de conexión:", {
+            message: error.message,
+            type: error.name,
+          })
+          reject(new Error(`Error de conexión: ${error.message}`))
         })
 
-        this.socket.on("disconnect", () => {
-          console.log("🔌 Desconectado del servidor")
+        this.socket.on("disconnect", (reason) => {
+          console.log("[v0] AudioStreamService: 🔌 Desconectado. Razón:", reason)
+        })
+
+        this.socket.on("error", (error) => {
+          console.error("[v0] AudioStreamService: ❌ Error del socket:", error)
         })
 
         this.socket.on("transcription", (data) => {
-          console.log("📝 Transcripción recibida:", data)
+          console.log("[v0] AudioStreamService: 📝 Transcripción recibida:", data)
         })
+
+        setTimeout(() => {
+          if (this.socket && !this.socket.connected) {
+            console.log("[v0] AudioStreamService: ⏱️ Timeout de conexión alcanzado")
+            const error = new Error("Timeout: No se pudo conectar al servidor")
+            this.socket.disconnect()
+            reject(error)
+          }
+        }, 20000)
       } catch (error) {
+        console.error("[v0] AudioStreamService: Error en connect:", error)
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
@@ -47,9 +78,17 @@ class AudioStreamService {
    * Desconecta del servidor WebSocket
    */
   disconnect(): void {
+    console.log("[v0] AudioStreamService: Desconectando...")
+
+    if (this.isStreaming) {
+      this.stopStreaming()
+    }
+
     if (this.socket) {
+      this.socket.removeAllListeners()
       this.socket.disconnect()
       this.socket = null
+      console.log("[v0] AudioStreamService: Socket desconectado y limpiado")
     }
   }
 
@@ -65,7 +104,7 @@ class AudioStreamService {
    */
   async startStreaming(): Promise<void> {
     if (this.isStreaming) {
-      console.warn("⚠️ El streaming ya está activo")
+      console.warn("[v0] AudioStreamService: ⚠️ El streaming ya está activo")
       return
     }
 
@@ -74,16 +113,15 @@ class AudioStreamService {
     }
 
     try {
-      // Configurar el stream de audio
+      console.log("[v0] AudioStreamService: Iniciando streaming con config:", this.config)
+
       LiveAudioStream.init({
         ...this.config,
-        wavFile: "audio.wav" // o cualquier nombre de archivo válido requerido
+        wavFile: "audio.wav",
       })
 
-      // Escuchar eventos de datos de audio
       LiveAudioStream.on("data", (data: string) => {
         if (this.socket?.connected) {
-          // Enviar datos de audio al servidor
           this.socket.emit("audio-stream", {
             audio: data,
             timestamp: Date.now(),
@@ -93,18 +131,18 @@ class AudioStreamService {
         }
       })
 
-      // Iniciar la grabación
       LiveAudioStream.start()
       this.isStreaming = true
 
-      // Notificar al servidor que comenzó el streaming
-      this.socket.emit("start-stream", {
-        config: this.config,
-      })
+      if (this.socket?.connected) {
+        this.socket.emit("start-stream", {
+          config: this.config,
+        })
+      }
 
-      console.log("🎤 Streaming de audio iniciado")
+      console.log("[v0] AudioStreamService: 🎤 Streaming de audio iniciado")
     } catch (error) {
-      console.error("❌ Error al iniciar streaming:", error)
+      console.error("[v0] AudioStreamService: ❌ Error al iniciar streaming:", error)
       throw error
     }
   }
@@ -118,17 +156,18 @@ class AudioStreamService {
     }
 
     try {
+      console.log("[v0] AudioStreamService: Deteniendo streaming...")
+
       LiveAudioStream.stop()
       this.isStreaming = false
 
-      // Notificar al servidor que terminó el streaming
       if (this.socket?.connected) {
         this.socket.emit("stop-stream")
       }
 
-      console.log("🛑 Streaming de audio detenido")
+      console.log("[v0] AudioStreamService: 🛑 Streaming de audio detenido")
     } catch (error) {
-      console.error("❌ Error al detener streaming:", error)
+      console.error("[v0] AudioStreamService: ❌ Error al detener streaming:", error)
     }
   }
 
