@@ -36,7 +36,12 @@ local.properties
 .kotlin/
 .android/
 .ios/
+
+# Bundle files
 .bundle/
+*.jsbundle
+
+# Tests
 ._tests_/
 # node.js
 #
@@ -55,9 +60,6 @@ yarn-error.log
 **/fastlane/Preview.html
 **/fastlane/screenshots
 **/fastlane/test_output
-
-# Bundle artifact
-*.jsbundle
 
 # Ruby / CocoaPods
 **/Pods/
