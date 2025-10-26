@@ -9,6 +9,9 @@ export const useAudioStream = (serverUrl: string) => {
     error: null,
   });
   const [transcription, setTranscription] = useState<string>('');
+  const [assistantResponse, setAssistantResponse] = useState<string>(''); // NUEVO
+  const [isAssistantThinking, setIsAssistantThinking] =
+    useState<boolean>(false); // NUEVO
   const isMountedRef = useRef(true);
   const requestMicrophonePermission = async (): Promise<boolean> => {
     try {
@@ -37,6 +40,7 @@ export const useAudioStream = (serverUrl: string) => {
       await AudioStreamService.connect(serverUrl);
       const socket = AudioStreamService.getSocket();
       if (socket) {
+        // Evento de transcripción existente
         socket.on('transcription', (data: {text: string; isFinal: boolean}) => {
           if (!isMountedRef.current) return;
           setTranscription(prev => {
@@ -48,6 +52,38 @@ export const useAudioStream = (serverUrl: string) => {
           });
         });
 
+        // NUEVOS EVENTOS PARA IA
+        socket.on('assistant_status', (data: {status: string}) => {
+          if (!isMountedRef.current) return;
+          console.log('Estado del asistente:', data);
+          if (data.status === 'thinking') {
+            setIsAssistantThinking(true);
+            setAssistantResponse('Pensando...');
+          } else if (data.status === 'idle') {
+            setIsAssistantThinking(false);
+          }
+        });
+
+        socket.on('assistant_text', (data: {delta: string}) => {
+          if (!isMountedRef.current) return;
+          setIsAssistantThinking(false);
+          setAssistantResponse(prev =>
+            prev === 'Pensando...' ? data.delta : prev + data.delta,
+          );
+        });
+
+        socket.on('assistant_text_done', (data: {text: string}) => {
+          if (!isMountedRef.current) return;
+          setIsAssistantThinking(false);
+          setAssistantResponse(data.text);
+        });
+
+        socket.on('voice_command_detected', (data: {action: string}) => {
+          if (!isMountedRef.current) return;
+          console.log('Comando de voz detectado:', data);
+          // Puedes mostrar notificaciones o cambiar estado aquí
+        });
+
         socket.on('disconnect', () => {
           console.warn('[useAudioStream] Desconectado');
           if (isMountedRef.current) {
@@ -56,6 +92,7 @@ export const useAudioStream = (serverUrl: string) => {
               isConnected: false,
               isRecording: false,
             }));
+            setIsAssistantThinking(false);
           }
         });
       }
@@ -120,6 +157,18 @@ export const useAudioStream = (serverUrl: string) => {
   const clearTranscription = useCallback(() => {
     setTranscription('');
   }, []);
+  const clearAssistantResponse = useCallback(() => {
+    setAssistantResponse('');
+    setIsAssistantThinking(false);
+  }, []);
+
+  // NUEVA FUNCIÓN: Consultar IA manualmente
+  const askAssistant = useCallback(() => {
+    const socket = AudioStreamService.getSocket();
+    if (socket && AudioStreamService.isConnected()) {
+      socket.emit('get_final_transcription');
+    }
+  }, []);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -132,10 +181,14 @@ export const useAudioStream = (serverUrl: string) => {
   return {
     ...state,
     transcription,
+    assistantResponse, // NUEVO
+    isAssistantThinking, // NUEVO
     connect,
     disconnect,
     startRecording,
     stopRecording,
     clearTranscription,
+    clearAssistantResponse, // NUEVO
+    askAssistant, // NUEVO
   };
 };
