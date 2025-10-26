@@ -1,20 +1,24 @@
+// services/AudioStreamService.ts
 import LiveAudioStream from 'react-native-live-audio-stream';
-import {io, type Socket} from 'socket.io-client';
-import {type AudioConfig, DEFAULT_AUDIO_CONFIG} from '../types/audio';
+import { io, type Socket } from 'socket.io-client';
+import { type AudioConfig, DEFAULT_AUDIO_CONFIG } from '../types/audio';
+
+type ConversationState = {
+  active: boolean;
+  messageCount: number;
+  duration: number;
+  hasHistory: boolean;
+};
+
 class AudioStreamService {
   private socket: Socket | null = null;
   private isStreaming = false;
   private config: AudioConfig = DEFAULT_AUDIO_CONFIG;
+
   connect(serverUrl: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        console.log(
-          '[v0] AudioStreamService: Intentando conectar a:',
-          serverUrl,
-        );
-
         if (this.socket) {
-          console.log('[v0] AudioStreamService: Limpiando socket anterior');
           this.socket.removeAllListeners();
           this.socket.disconnect();
           this.socket = null;
@@ -32,109 +36,58 @@ class AudioStreamService {
         });
 
         this.socket.on('connect', () => {
-          console.log('[v0] AudioStreamService: Conectado exitosamente');
-          console.log('[v0] AudioStreamService: Socket ID:', this.socket?.id);
           resolve();
         });
 
-        this.socket.on('connected', data => {
-          console.log('[v0] AudioStreamService: Servidor listo:', data);
-        });
-
-        this.socket.on('transcription', data => {
-          console.log(
-            '[v0] AudioStreamService: Transcripción recibida:',
-            data,
-          );
-        });
-
-        this.socket.on('audio_ack', data => {
-          console.log('[v0] AudioStreamService: ACK recibido:', data);
-        });
-
-        this.socket.on('server_stats', data => {
-          console.log('[v0] AudioStreamService: Stats:', data);
-        });
-
-        this.socket.on('audio_error', error => {
-          console.error('[v0] AudioStreamService: Error de audio:', error);
-        });
-
-        this.socket.on('connect_error', error => {
-          console.error('[v0] AudioStreamService: Error de conexión:', {
-            message: error.message,
-            type: error.name,
-          });
-          reject(new Error(`Error de conexión: ${error.message}`));
-        });
-
-        this.socket.on('disconnect', reason => {
-          console.log(
-            '[v0] AudioStreamService: 🔌 Desconectado. Razón:',
-            reason,
-          );
+        this.socket.on('disconnect', () => {
           this.isStreaming = false;
         });
 
-        this.socket.on('error', error => {
-          console.error('[v0] AudioStreamService: Error del socket:', error);
+        this.socket.on('connect_error', (error) => {
+          reject(new Error(`Error de conexión: ${error.message}`));
         });
+
+        // Safety timeout if server never confirms
         setTimeout(() => {
           if (this.socket && !this.socket.connected) {
-            console.log(
-              '[v0] AudioStreamService: ⏱️ Timeout de conexión alcanzado',
-            );
             const error = new Error('Timeout: No se pudo conectar al servidor');
             this.socket.disconnect();
             reject(error);
           }
         }, 20000);
       } catch (error) {
-        console.error('[v0] AudioStreamService: Error en connect:', error);
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
+
   disconnect(): void {
-    console.log('[v0] AudioStreamService: Desconectando...');
-
-    if (this.isStreaming) {
-      this.stopStreaming();
-    }
-
+    if (this.isStreaming) this.stopStreaming();
     if (this.socket) {
       this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
-      console.log('[v0] AudioStreamService: Socket desconectado y limpiado');
     }
   }
-  setAudioConfig(config: Partial<AudioConfig>): void {
-    this.config = {...this.config, ...config};
-  }
-  async startStreaming(): Promise<void> {
-    if (this.isStreaming) {
-      console.warn('[v0] AudioStreamService: ⚠️ El streaming ya está activo');
-      return;
-    }
 
-    if (!this.socket?.connected) {
-      throw new Error('No hay conexión WebSocket activa');
-    }
+  setAudioConfig(config: Partial<AudioConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+
+  async startStreaming(): Promise<void> {
+    if (this.isStreaming) return;
+    if (!this.socket?.connected) throw new Error('No hay conexión WebSocket activa');
 
     try {
-      console.log(
-        '[v0] AudioStreamService: Iniciando streaming con config:',
-        this.config,
-      );
       LiveAudioStream.init({
         sampleRate: this.config.sampleRate,
         channels: this.config.channels,
         bitsPerSample: this.config.bitsPerSample,
         audioSource: this.config.audioSource,
         bufferSize: this.config.bufferSize,
-        wavFile: 'audio_stream.wav', // Solo para debug
+        wavFile: 'audio_stream.wav',
       });
+
       LiveAudioStream.on('data', (data: any) => {
         if (!this.socket?.connected || !this.isStreaming) return;
 
@@ -142,73 +95,105 @@ class AudioStreamService {
           let int16Array: Int16Array;
 
           if (typeof data === 'string') {
+            // base64 -> Int16Array
             const binaryString = atob(data);
             const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
+            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
             int16Array = new Int16Array(bytes.buffer);
           } else if (data instanceof Uint8Array) {
-            int16Array = new Int16Array(
-              data.buffer,
-              data.byteOffset,
-              data.byteLength / 2,
-            );
+            int16Array = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
           } else {
-            console.warn(
-              '[LiveAudioStream] Formato de dato no reconocido:',
-              typeof data,
-            );
             return;
           }
 
-          if (int16Array.length === 0) {
-            console.warn('[LiveAudioStream] Chunk vacío después de conversión');
-            return;
-          }
+          if (int16Array.length === 0) return;
 
           this.socket.emit('audio_chunk', {
             chunk: Array.from(int16Array),
             timestamp: Date.now(),
           });
-        } catch (error) {
-          console.error('[LiveAudioStream] Error procesando chunk:', error);
+        } catch (err) {
+          // swallow per-chunk errors
         }
       });
+
+      // Avisar al backend que comienza una sesión de grabación
+      this.socket.emit('start_recording');
+
       LiveAudioStream.start();
       this.isStreaming = true;
     } catch (error) {
-      console.error(
-        '[v0] AudioStreamService: Error al iniciar streaming:',
-        error,
-      );
       this.isStreaming = false;
       throw error;
     }
   }
+
   stopStreaming(): void {
-    if (!this.isStreaming) {
-      return;
-    }
+    if (!this.isStreaming) return;
     try {
       LiveAudioStream.stop();
       this.isStreaming = false;
-      console.log('[v0] AudioStreamService: Streaming de audio detenido');
-    } catch (error) {
-      console.error(
-        '[v0] AudioStreamService: Error al detener streaming:',
-        error,
-      );
+      // Avisar fin de grabación
+      this.socket?.emit('stop_recording');
+    } catch (_e) {
+      // noop
     }
   }
+
   isConnected(): boolean {
     return this.socket?.connected ?? false;
   }
+
   isRecording(): boolean {
     return this.isStreaming;
   }
+
   getSocket(): Socket | null {
     return this.socket;
   }
+
+  /** === Funciones de control/IA para paridad con cliente web === */
+
+  /** Fuerza al servidor a emitir el texto final acumulado y (si hay conversación activa) a responder con la IA. */
+  getFinalTranscription(): void {
+    this.socket?.emit('get_final_transcription');
+  }
+
+  /** Resetea el contexto conversacional en el servidor. */
+  resetConversation(): void {
+    this.socket?.emit('reset_conversation');
+  }
+
+  /**
+   * Solicita el estado de la conversación. Devuelve una promesa que
+   * se resuelve con el siguiente evento 'conversation_state'.
+   */
+  getConversationState(timeoutMs = 5000): Promise<ConversationState> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) return reject(new Error('Socket no inicializado'));
+
+      let timeout: NodeJS.Timeout | null = setTimeout(() => {
+        cleanup();
+        reject(new Error('Timeout esperando conversation_state'));
+      }, timeoutMs);
+
+      const handler = (state: ConversationState) => {
+        cleanup();
+        resolve(state);
+      };
+
+      const cleanup = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        this.socket?.off('conversation_state', handler);
+      };
+
+      this.socket.once('conversation_state', handler);
+      this.socket.emit('get_conversation_state');
+    });
+  }
 }
+
 export default new AudioStreamService();
