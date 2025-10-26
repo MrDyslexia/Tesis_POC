@@ -2,13 +2,7 @@
 import LiveAudioStream from 'react-native-live-audio-stream';
 import { io, type Socket } from 'socket.io-client';
 import { type AudioConfig, DEFAULT_AUDIO_CONFIG } from '../types/audio';
-
-type ConversationState = {
-  active: boolean;
-  messageCount: number;
-  duration: number;
-  hasHistory: boolean;
-};
+import type { ConversationState } from '../types/conversation';
 
 class AudioStreamService {
   private socket: Socket | null = null;
@@ -47,7 +41,7 @@ class AudioStreamService {
           reject(new Error(`Error de conexión: ${error.message}`));
         });
 
-        // Safety timeout if server never confirms
+        // Safety timeout si nunca conecta
         setTimeout(() => {
           if (this.socket && !this.socket.connected) {
             const error = new Error('Timeout: No se pudo conectar al servidor');
@@ -85,7 +79,7 @@ class AudioStreamService {
         bitsPerSample: this.config.bitsPerSample,
         audioSource: this.config.audioSource,
         bufferSize: this.config.bufferSize,
-        wavFile: 'audio_stream.wav',
+        wavFile: 'audio_stream.wav', // solo para debug local
       });
 
       LiveAudioStream.on('data', (data: any) => {
@@ -112,12 +106,12 @@ class AudioStreamService {
             chunk: Array.from(int16Array),
             timestamp: Date.now(),
           });
-        } catch (err) {
-          // swallow per-chunk errors
+        } catch {
+          // omitir errores por chunk
         }
       });
 
-      // Avisar al backend que comienza una sesión de grabación
+      // Avisar al backend que inicia la grabación
       this.socket.emit('start_recording');
 
       LiveAudioStream.start();
@@ -135,7 +129,7 @@ class AudioStreamService {
       this.isStreaming = false;
       // Avisar fin de grabación
       this.socket?.emit('stop_recording');
-    } catch (_e) {
+    } catch {
       // noop
     }
   }

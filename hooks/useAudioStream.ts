@@ -4,55 +4,32 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import AudioStreamService from '../services/AudioStreamService';
 import type { AudioStreamState } from '../types/audio';
 
-/** ===== Tipos locales (luego podemos moverlos a types/conversation.ts) ===== */
-type ChatRole = 'user' | 'assistant';
-export type ChatMessage = {
-  id: string;
-  role: ChatRole;
-  content: string;
-  ts: number;
-};
+// Tipos compartidos
+import type {
+  ChatMessage,
+  ConversationState,
+  ServerStats,
+  VoiceCommandEvent,
+} from '../types/conversation';
 
-export type ConversationState = {
-  active: boolean;
-  messageCount: number;
-  duration: number;
-  hasHistory: boolean;
-};
-
-export type ServerStats = {
-  activeConnections: number;
-  chunksReceived: number;
-  duration: number; // ms
-  totalTranscriptions: number;
-  voskReady?: boolean;
-  isRecording?: boolean;
-};
-
-export type VoiceCommandEvent = {
-  action: 'start_conversation' | 'stop_conversation' | 'reset_conversation' | 'continue_conversation' | string;
-  command?: string;
-  text?: string;
-  ts: number;
-  conversationState?: ConversationState;
-};
-
-/** ===== Hook principal ===== */
 export const useAudioStream = (serverUrl: string) => {
+  /** ===== Estado base conexión/grabación ===== */
   const [state, setState] = useState<AudioStreamState>({
     isRecording: false,
     isConnected: false,
     error: null,
   });
 
+  /** ===== Transcripción ===== */
   const [transcription, setTranscription] = useState<string>('');
   const [interim, setInterim] = useState<string>(''); // parcial
 
-  // IA streaming
+  /** ===== IA streaming ===== */
   const [assistantResponse, setAssistantResponse] = useState<string>('');
   const [isAssistantThinking, setIsAssistantThinking] = useState<boolean>(false);
+  const currentAssistantDraft = useRef<string>(''); // buffer de stream hasta assistant_text_done
 
-  // Conversación y stats
+  /** ===== Conversación y stats ===== */
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [conversation, setConversation] = useState<ConversationState>({
     active: false,
@@ -64,9 +41,8 @@ export const useAudioStream = (serverUrl: string) => {
   const [lastVoiceCommand, setLastVoiceCommand] = useState<VoiceCommandEvent | null>(null);
 
   const isMountedRef = useRef(true);
-  const currentAssistantDraft = useRef<string>(''); // buffer hasta assistant_text_done
 
-  /** ===== Permisos ===== */
+  /** ===== Permisos micrófono ===== */
   const requestMicrophonePermission = async (): Promise<boolean> => {
     try {
       if (Platform.OS === 'android') {
@@ -103,11 +79,11 @@ export const useAudioStream = (serverUrl: string) => {
         if (!isMountedRef.current) return;
 
         if (data.isFinal) {
-          // acumular al texto final
+          // Acumular al texto final y limpiar parcial
           setTranscription(prev => (prev ? `${prev} ${data.text}` : data.text));
           setInterim('');
 
-          // agregar al chat como turno de usuario
+          // Agregar turno de usuario al chat
           const msg: ChatMessage = {
             id: `u_${Date.now()}`,
             role: 'user',
@@ -116,7 +92,7 @@ export const useAudioStream = (serverUrl: string) => {
           };
           setChat(prev => [...prev, msg]);
         } else {
-          // parcial (interim)
+          // Parcial (interim)
           setInterim(data.text);
         }
       });
@@ -136,20 +112,20 @@ export const useAudioStream = (serverUrl: string) => {
         if (!isMountedRef.current) return;
         setIsAssistantThinking(false);
 
-        // limpiar placeholder "Pensando..." al primer delta
+        // Reemplazar placeholder al primer delta
         setAssistantResponse(prev => (prev === 'Pensando...' ? data.delta : prev + data.delta));
 
-        // mantener un buffer para luego consolidar un turno en chat
         currentAssistantDraft.current += data.delta;
       });
 
       socket.on('assistant_text_done', (data: { text: string }) => {
         if (!isMountedRef.current) return;
         setIsAssistantThinking(false);
-        setAssistantResponse(data.text || currentAssistantDraft.current);
 
-        const finalText = data.text || currentAssistantDraft.current || '';
-        if (finalText.trim()) {
+        const finalText = (data.text || currentAssistantDraft.current || '').trim();
+        setAssistantResponse(finalText);
+
+        if (finalText) {
           const msg: ChatMessage = {
             id: `a_${Date.now()}`,
             role: 'assistant',
@@ -178,7 +154,6 @@ export const useAudioStream = (serverUrl: string) => {
         };
         setLastVoiceCommand(evt);
 
-        // reflejar en nuestro estado conversacional si viene incluido
         if (data.conversationState) {
           setConversation(data.conversationState);
         }
@@ -196,7 +171,6 @@ export const useAudioStream = (serverUrl: string) => {
         };
         setServerStats(stats);
 
-        // también suele venir el estado de conversación
         if (data.conversationState) {
           setConversation(data.conversationState as ConversationState);
         }
@@ -267,7 +241,7 @@ export const useAudioStream = (serverUrl: string) => {
     }
   }, []);
 
-  /** ===== Limpiezas ===== */
+  /** ===== Limpiezas UI ===== */
   const clearTranscription = useCallback(() => {
     setTranscription('');
     setInterim('');
@@ -284,16 +258,25 @@ export const useAudioStream = (serverUrl: string) => {
   }, []);
 
   /** ===== IA / Conversación ===== */
+  // Paridad con web: si está grabando, detener primero y luego pedir final.
   const askAssistant = useCallback(() => {
     const socket = AudioStreamService.getSocket();
-    if (socket && AudioStreamService.isConnected()) {
+    if (!socket || !AudioStreamService.isConnected()) return;
+
+    if (state.isRecording) {
+      AudioStreamService.stopStreaming(); // emite 'stop_recording'
+      setState(prev => ({ ...prev, isRecording: false }));
+      setTimeout(() => {
+        socket.emit('get_final_transcription');
+      }, 150);
+    } else {
       socket.emit('get_final_transcription');
     }
-  }, []);
+  }, [state.isRecording]);
 
   const resetAssistantConversation = useCallback(() => {
     AudioStreamService.resetConversation();
-    // limpiamos UI local (no transcripción)
+    // limpiar estado local de IA (no tocamos transcripción)
     setAssistantResponse('');
     setIsAssistantThinking(false);
     currentAssistantDraft.current = '';
@@ -308,12 +291,11 @@ export const useAudioStream = (serverUrl: string) => {
   const refreshConversationState = useCallback(async () => {
     try {
       const serverState = await AudioStreamService.getConversationState();
-      if (isMountedRef.current) {
+      if (isMountedRef.current && serverState) {
         setConversation(serverState);
       }
       return serverState;
-    } catch (e) {
-      // silencioso si falla
+    } catch {
       return null;
     }
   }, []);
@@ -330,6 +312,7 @@ export const useAudioStream = (serverUrl: string) => {
     };
   }, []);
 
+  /** ===== Exposición del hook ===== */
   return {
     // conexión / grabación
     ...state,
