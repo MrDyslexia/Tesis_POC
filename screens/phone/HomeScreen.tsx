@@ -15,66 +15,36 @@ import { useAudioStream } from '../../hooks/useAudioStream';
 import AssistantPanel from '../shared/AssistantPanel';
 import TranscriptionPanel from '../shared/TranscriptionPanel';
 import StatusBadge from '../../components/StatusBadge';
+import { useTTS } from '../../hooks/useTTS';
 
 const PhoneHome: React.FC = () => {
   const serverUrl = 'https://m1.blocktype.cl';
-
   const {
-    // conexión / grabación
-    isConnected,
-    isRecording,
-    error,
-    connect,
-    disconnect,
-    startRecording,
-    stopRecording,
-
-    // transcripción
-    transcription,
-    interim,
-    clearTranscription,
-
-    // IA
-    assistantResponse,
-    isAssistantThinking,
-    askAssistant,
-    clearAssistantResponse,
-    resetAssistantConversation,
-
-    // conversación y chat
-    chat,
-    clearChat,
-    conversation,
-    refreshConversationState,
-    lastVoiceCommand,
-
-    // stats
+    isConnected, isRecording, error, connect, disconnect,
+    startRecording, stopRecording,
+    transcription, interim, clearTranscription,
+    assistantResponse, isAssistantThinking, askAssistant, clearAssistantResponse, resetAssistantConversation,
+    chat, clearChat, conversation, refreshConversationState, lastVoiceCommand,
     serverStats,
   } = useAudioStream(serverUrl);
 
-  /** ===== Toast por comandos de voz ===== */
+  const { status: ttsStatus } = useTTS();
+
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const toastOpacity = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
     connect();
-    return () => {
-      // cleanup lo maneja el hook
-    };
+    return () => { /* cleanup en hook */ };
   }, [connect]);
 
   React.useEffect(() => {
     if (!lastVoiceCommand) return;
     let msg = '';
-    if (lastVoiceCommand.action === 'start_conversation') {
-      msg = '🎯 Conversación activada con ALMA';
-    } else if (lastVoiceCommand.action === 'stop_conversation') {
-      msg = '🛑 Conversación finalizada';
-    } else if (lastVoiceCommand.action === 'reset_conversation') {
-      msg = '🔄 Conversación reiniciada';
-    } else {
-      msg = `ℹ️ Comando detectado: ${lastVoiceCommand.action}`;
-    }
+    if (lastVoiceCommand.action === 'start_conversation') msg = '🎯 Conversación activada con ALMA';
+    else if (lastVoiceCommand.action === 'stop_conversation') msg = '🛑 Conversación finalizada';
+    else if (lastVoiceCommand.action === 'reset_conversation') msg = '🔄 Conversación reiniciada';
+    else msg = `ℹ️ Comando detectado: ${lastVoiceCommand.action}`;
     setToastMsg(msg);
     Animated.sequence([
       Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
@@ -89,26 +59,20 @@ const PhoneHome: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Toast */}
       {toastMsg ? (
         <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
           <Text style={styles.toastText}>{toastMsg}</Text>
         </Animated.View>
       ) : null}
 
-      {/* Estado (StatusBadge) */}
       <View style={styles.statusWrap}>
         <StatusBadge status={status as any} label={statusLabel} large />
+        <Text style={styles.ttsHint}>TTS: {ttsStatus === 'speaking' ? 'Hablando…' : ttsStatus === 'error' ? 'Error' : 'Silencio'}</Text>
       </View>
 
-      {/* Controles conexión */}
       <View style={styles.controlsContainer}>
         <TouchableOpacity
-          style={[
-            styles.button,
-            styles.connectButton,
-            (isConnected || isRecording) && styles.disabledButton,
-          ]}
+          style={[styles.button, styles.connectButton, (isConnected || isRecording) && styles.disabledButton]}
           onPress={connect}
           disabled={isConnected || isRecording}
         >
@@ -116,11 +80,7 @@ const PhoneHome: React.FC = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.button,
-            styles.disconnectButton,
-            (!isConnected || isRecording) && styles.disabledButton,
-          ]}
+          style={[styles.button, styles.disconnectButton, (!isConnected || isRecording) && styles.disabledButton]}
           onPress={disconnect}
           disabled={!isConnected || isRecording}
         >
@@ -128,14 +88,9 @@ const PhoneHome: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Controles grabación */}
       <View style={styles.controlsContainer}>
         <TouchableOpacity
-          style={[
-            styles.button,
-            styles.recordButton,
-            (!isConnected || isRecording) && styles.disabledButton,
-          ]}
+          style={[styles.button, styles.recordButton, (!isConnected || isRecording) && styles.disabledButton]}
           onPress={startRecording}
           disabled={!isConnected || isRecording}
         >
@@ -143,11 +98,7 @@ const PhoneHome: React.FC = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.button,
-            styles.stopButton,
-            (!isConnected || !isRecording) && styles.disabledButton,
-          ]}
+          style={[styles.button, styles.stopButton, (!isConnected || !isRecording) && styles.disabledButton]}
           onPress={stopRecording}
           disabled={!isConnected || !isRecording}
         >
@@ -155,7 +106,6 @@ const PhoneHome: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Panel IA (shared) */}
       <AssistantPanel
         title="🤖 ALMA (IA Local)"
         isAssistantThinking={isAssistantThinking}
@@ -167,33 +117,19 @@ const PhoneHome: React.FC = () => {
         canInteract={isConnected}
       />
 
-      {/* Transcripción (shared) */}
-      <TranscriptionPanel
-        transcription={transcription}
-        interim={interim}
-        onClear={clearTranscription}
-      />
+      <TranscriptionPanel transcription={transcription} interim={interim} onClear={clearTranscription} />
 
-      {/* Chat (historial) */}
       <View style={styles.chatContainer}>
         <View style={styles.panelHeader}>
           <Text style={styles.panelTitle}>💬 Historial</Text>
-          <TouchableOpacity onPress={clearChat}>
-            <Text style={styles.clearLink}>Vaciar</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={clearChat}><Text style={styles.clearLink}>Vaciar</Text></TouchableOpacity>
         </View>
         <ScrollView style={styles.chatScroll}>
           {chat.length === 0 ? (
             <Text style={styles.placeholderText}>Aún no hay turnos en esta sesión.</Text>
           ) : (
             chat.map(m => (
-              <View
-                key={m.id}
-                style={[
-                  styles.chatBubble,
-                  m.role === 'user' ? styles.chatUser : styles.chatAssistant,
-                ]}
-              >
+              <View key={m.id} style={[styles.chatBubble, m.role === 'user' ? styles.chatUser : styles.chatAssistant]}>
                 <Text style={styles.chatRole}>{m.role === 'user' ? 'Usuario' : 'ALMA'}</Text>
                 <Text style={styles.chatText}>{m.content}</Text>
               </View>
@@ -202,7 +138,6 @@ const PhoneHome: React.FC = () => {
         </ScrollView>
       </View>
 
-      {/* Stats */}
       {serverStats && (
         <View style={styles.statsRow}>
           <Text style={styles.statItem}>Conexiones: {serverStats.activeConnections}</Text>
@@ -212,7 +147,6 @@ const PhoneHome: React.FC = () => {
         </View>
       )}
 
-      {/* Error */}
       {error && (
         <View style={styles.debugContainer}>
           <Text style={styles.debugText}>Error: {error}</Text>
@@ -220,9 +154,7 @@ const PhoneHome: React.FC = () => {
           <Text style={styles.debugText}>Conectado: {isConnected ? 'Sí' : 'No'}</Text>
           <Text style={styles.debugText}>Grabando: {isRecording ? 'Sí' : 'No'}</Text>
           <TouchableOpacity onPress={refreshConversationState}>
-            <Text style={[styles.debugText, { textDecorationLine: 'underline' }]}>
-              Actualizar estado de conversación
-            </Text>
+            <Text style={[styles.debugText, { textDecorationLine: 'underline' }]}>Actualizar estado de conversación</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -230,22 +162,16 @@ const PhoneHome: React.FC = () => {
   );
 };
 
-/* ===================== STYLES Phone ===================== */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', padding: 20 },
   toast: {
-    position: 'absolute',
-    top: 14,
-    alignSelf: 'center',
-    backgroundColor: '#111827',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
-    zIndex: 50,
+    position: 'absolute', top: 14, alignSelf: 'center',
+    backgroundColor: '#111827', paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 16, zIndex: 50,
   },
   toastText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-
   statusWrap: { alignItems: 'center', justifyContent: 'center', marginTop: 30, marginBottom: 16 },
+  ttsHint: { color: '#9ca3af', marginTop: 4, fontSize: 12 },
 
   controlsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: 10 },
   button: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8, minWidth: 120, alignItems: 'center' },
