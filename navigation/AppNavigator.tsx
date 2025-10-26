@@ -1,20 +1,27 @@
+// navigation/AppNavigator.tsx
 import React from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
-import HomeScreen  from '../screens/MainScreen';
-import type { RootStackParamList } from './types';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import DeviceInfo from 'react-native-device-info';
+
+import { isWear } from '../utils/device';
+import PhoneHome from '../screens/phone/HomeScreen';
+import WearHome from '../screens/wear/HomeScreen';
+import type { RootStackParamList } from '../types/navigation';
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-const AppNavigator = () => {
+const AppNavigator: React.FC = () => {
+  const model = DeviceInfo.getModel();
+  const HomeComponent = isWear(model) ? WearHome : PhoneHome;
+
   return (
     <NavigationContainer>
       <Stack.Navigator
         initialRouteName="Home"
-        screenOptions={{
-          headerShown: false,
-        }}
+        screenOptions={{ headerShown: false }}
       >
-        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Home" component={HomeComponent} />
       </Stack.Navigator>
     </NavigationContainer>
   );
