@@ -19,3 +19,12 @@ export function isWear(model?: string): boolean {
 export function isPhone(model?: string): boolean {
   return !isWear(model);
 }
+export function hasGMS(): boolean {
+  try {
+    // RN DeviceInfo expone hasGms() en Android (sincrónico)
+    // @ts-ignore
+    return typeof DeviceInfo.hasGms === 'function' ? !!DeviceInfo.hasGms() : false;
+  } catch {
+    return false;
+  }
+}
