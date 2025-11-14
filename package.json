@@ -8,7 +8,7 @@
       "lint": "eslint .",
       "start": "react-native start",
       "test": "jest",
-      "wear": "bunx react-native run-android --device emulator-5554"
+      "wear": "react-native run-android device emulator-5556"
    },
    "dependencies": {
       "@react-native-async-storage/async-storage": "^2.2.0",
